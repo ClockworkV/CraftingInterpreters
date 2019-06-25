@@ -56,8 +56,8 @@ class Token
 public:
 	using Literal = std::optional<std::variant<double, std::string>>;
 	Token() = default;
-	Token(TokenType type, std::string_view lex, Literal lit, int line):
-		type(type), lexeme(lex), literal(lit), line(line)
+	Token(TokenType _type, std::string_view _lexeme, Literal _literal, int _line):
+		type(_type), lexeme(_lexeme), literal(_literal), line(_line)
 	{
 
 	}
@@ -73,7 +73,7 @@ public:
 	}
 	std::string toString() const
 	{
-		return std::string(TokenNames[int(type)]) + std::string(lexeme) + getLiteral();
+		return std::string(TokenNames[int(type)]) + " " + std::string(lexeme) + " " + getLiteral();
 
 	}
 private:
@@ -144,10 +144,63 @@ private:
 		case '\n':
 			line++;
 			break;
-			
+		
+		case '"': scanString(); break;
+
 		default:
-			error_handler(line, "Unexpected character");
+			if (isDigit(c)) {
+				scanNumber();
+			}
+			else if (isAlpha(c)) {
+				scanIdentifier();
+			}
+			else {
+				error_handler(line, "Unexpected character");
+			}
 		}
+	}
+	void scanIdentifier() {
+		while (isAlphaNumeric(peek())) advance();
+
+		std::string text = source.substr(start, current);
+
+		TokenType type = TokenType::IDENTIFIER;
+		auto keyword = keywords.find(text);
+		if (keyword != keywords.end()) type = keyword->second;
+		addToken(type);
+	}
+	void scanNumber() {
+		while (isDigit(peek())) advance();
+
+		// Look for a fractional part.                            
+		if (peek() == '.' && isDigit(peekNext())) {
+			// Consume the "."                                      
+			advance();
+
+			while (isDigit(peek())) advance();
+		}
+
+		addToken(TokenType::NUMBER,
+			std::stod(std::string(source.data() + start, current - start)));
+	}
+	void scanString() {
+		while (peek() != '"' && !isAtEnd()) {
+			if (peek() == '\n') line++;
+			advance();
+		}
+
+		// Unterminated string.                                 
+		if (isAtEnd()) {
+			error_handler(line, "Unterminated string.");
+			return;
+		}
+
+		// The closing ".                                       
+		advance();
+
+		// Trim the surrounding quotes.                         
+		std::string text(source.data() + start, current - start);
+		addToken(TokenType::STRING, text);
 	}
 	bool match(char expected) {
 		if (isAtEnd()) return false;
@@ -159,6 +212,21 @@ private:
 	char peek() {
 		if (isAtEnd()) return '\0';
 		return source[current];
+	}
+	char peekNext() {
+		if (current + 1 >= source.length()) return '\0';
+		return source[current + 1];
+	}
+	bool isAlpha(char c) {
+		return (c >= 'a' && c <= 'z') ||
+			(c >= 'A' && c <= 'Z') ||
+			c == '_';
+	}
+	bool isAlphaNumeric(char c) {
+		return isAlpha(c) || isDigit(c);
+	}
+	bool isDigit(char c) {
+		return c >= '0' && c <= '9';
 	}
 	char advance() {
 		current++;
@@ -179,8 +247,28 @@ private:
 	int start = 0;
 	int current = 0;
 	int line = 1;
+	static std::unordered_map<std::string, TokenType> keywords;
+
 };
 
+std::unordered_map<std::string, TokenType> Scanner::keywords{
+		{"and", TokenType::AND},
+		{"class", TokenType::CLASS},
+		{"else", TokenType::ELSE},
+		{"false", TokenType::FALSE},
+		{"for", TokenType::FOR},
+		{"fun", TokenType::FUN},
+		{"if", TokenType::IF},
+		{"nil", TokenType::NIL},
+		{"or", TokenType::OR},
+		{"print", TokenType::PRINT},
+		{"return", TokenType::RETURN},
+		{"super", TokenType::SUPER},
+		{"this", TokenType::THIS},
+		{"true", TokenType::TRUE},
+		{"var", TokenType::VAR},
+		{"while", TokenType::WHILE}
+};
 
 class Lox
 {
@@ -193,6 +281,7 @@ public:
 			std::cout << "Usage: jlox [script]\n" ;
 			exit(64);
 		}
+
 		else if (argc == 2) {
 			runFile(argv[1]);
 		}
